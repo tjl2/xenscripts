@@ -9,7 +9,7 @@ different server environment.
 == Virtual Machine/Guest Distros ==
 The DomU guests can be various Linux distros, but each distro requires a
 'script' creating in the virtual_machine.rb file to work. The distros that
-work at this time are as follows:
+work at this time (providing you have boot images for them) are as follows:
 
 centos-5-i386
 centos-5-x86_64
@@ -50,8 +50,8 @@ available as a mount point) or local storage.
 * The script needs to know if the hypervisor is part of a cluster, by listing
 all cluster members in the config file. It will then copy out the xen config
 for the guest over to each cluster member if it is set to use the SAN storage.
-* The scripts assume you have a PXE boot server set up, hosting boot images
-(and installation media for the CentOS & RHEL distros).
+* The scripts assume you have access to a web server, hosting installation media
+for the CentOS & RHEL distros.
 * The CentOS & RHEL distros are set up using the kickstart method.
 * The Debian and Ubuntu distros are set up using the debootstrap method.
 * The scripts work on the basis of setting up a 'package' for the guests - the

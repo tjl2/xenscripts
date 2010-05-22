@@ -1,0 +1,208 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+
+class App < CommandLine::Application
+
+  def initialize
+    version           "0.1"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "FILE SIZE [-s|--swap, -m|--mount PATH, -h|--help]"
+    short_description "Create, format and mount an image file, FILE, of SIZE MB, for use with " +
+                      "a virtual machine"
+    long_description  "vmcreateimage will create, format and optionally mount an image file, " +
+                      "of SIZE MB, ready for use with a manual virtual machine setup. The " +
+                      "script requires the FILE and SIZE " +
+                      "arguments and can optionally accept a --swap option to create a swap " +
+                      "file. Use a naming convention of vmname.img for the filesystem " +
+                      "image file and vmname-swap.img for a swap image file. Your image will " +
+                      "be mounted at PATH if you use the --mount option."
+
+    option :version
+    option :verbose
+    option :help
+    option :debug
+    option :names => %w(--swap -s), :opt_description => "Create a swap image file",
+           :arity => [0,0], :opt_found => proc {@swap = true },
+           :opt_not_found => proc {@swap = false}
+    option :names => %w(--force -f), :opt_description => "Force overwrite if FILE already exists",
+           :arity => [0,0], :opt_found => proc {@force = true},
+           :opt_not_found => proc {@force = false}
+    option :names => %w(--mount -m), :opt_description => "Mount the image after creation",
+           :arg_description => 'PATH', :opt_found => get_args
+    
+    expected_args :file, :size
+  end
+
+  def main
+    # Validate the SIZE arg
+    validate_size
+    # Check if the file exists
+    unless @force
+      check_file_exists
+    end
+    # If we get here, we're ready to fire up dd
+    dd 
+    # Get our loop device, so that we can use it in other methods
+    @loop_dev = `losetup -f`.strip
+    if @swap
+      # Partition the image
+      partition_swap
+      # Format as swap
+      format_swap
+      # Ignore opt.mount value (why mount swap?)
+    else
+      # Partition the image
+      partition
+      # Format as ext3
+      format_ext3
+      if opt.mount
+        # Mount it at opt.mount path
+        mount_image(opt.mount)
+      end
+    end
+  end
+
+  def check_file_exists
+    if File.exists?(@file)
+      print "#{@file} exists. Overwrite? (yes|no): "
+      answer = STDIN.gets.chomp
+      case answer
+      when 'y', 'ye', 'yes'
+        # 'I would delete that...'
+        puts "#{@file} will be overwritten." if @verbose
+        File.delete(@file)
+      when 'n', 'no'
+        puts "#{@file} will not be overwritten. Exiting." if @verbose
+        exit
+      else
+        # Don't bother asking again, just assume they meant no.
+        puts "#{@file} will not be overwritten. Exiting." if @verbose
+        exit
+      end
+    end
+  end
+
+  def validate_size
+    if @size.to_i <= 0
+      raise "SIZE is invalid."
+    end
+  end
+
+  def check_path_for_sparse_setting
+    # Change directory to the @file directory and see if that path contains
+    # /mnt/lun*. Doing things this way allows us to receive relative paths.
+    # @file.split('/')[0:-2].join('/') will return our path without the filename.
+    image_dir = @file.split('/')[0..-2].join('/')
+    image_dir = '.' if image_dir == '' # we just got a filename & no path, set to '.'
+    Dir.chdir(image_dir) do
+      if Dir.pwd =~ /\/mnt\/lun.*/
+        # If the file path is on our /mnt/lun* area, then we want sparse
+        puts "This image is on the SAN storage and will be sparse..." if @verbose
+        true
+      else
+        # Otherwise, it has to be non-sparse to work around the Dell SAS controller bug
+        puts "This image is not on the SAN storage and needs to be non-sparse..." if @verbose
+        false
+      end
+    end
+  end
+
+  def dd
+    sparse = check_path_for_sparse_setting
+    if sparse
+      dd_command = "dd if=/dev/zero of=#{@file} oflag=direct bs=1M seek=#{@size} count=1"
+    else
+      dd_command = "dd if=/dev/zero of=#{@file} oflag=direct bs=1M count=#{@size}"
+    end
+    if @verbose
+      puts "Running the following dd command: #{dd_command}"
+      puts `#{dd_command}`
+    else
+      `#{dd_command} >> /dev/null 2>&1`
+    end
+  end
+
+  def loop_image
+    # Mount image to loop device
+    puts "Mounting image to loop device #{@loop_dev}" if @verbose
+    `losetup #{@loop_dev} #{@file}`
+  end
+
+  def partition_swap
+    # Create a partition using fdisk and our fdisk input file
+    loop_image # set up ur looop
+    puts "Partitioning swap image..." if @verbose
+    # Partition the swap
+    partition_cmd = "fdisk #{@loop_dev} < #{VirtualMachine::FDISK_INPUTS_PATH}/fdisk-new-swap.input"
+    if @verbose
+      puts `#{partition_cmd}`
+    else
+      `#{partition_cmd} >> /dev/null 2>&1`
+    end
+  end
+
+  def partition
+    # Create a partition using fdisk and our fdisk input file
+    loop_image # set up ur looop
+    puts "Partitioning image..." if @verbose
+    # Partition the image
+    partition_cmd = "fdisk #{@loop_dev} < #{VirtualMachine::FDISK_INPUTS_PATH}/fdisk-new.input"
+    if @verbose
+      puts `#{partition_cmd}`
+    else
+      `#{partition_cmd} >> /dev/null 2>&1`
+    end
+  end
+
+  def map_loop
+    # kpartx the partition
+    puts "Adding partition to device map..." if @verbose
+    kpartx_out = `kpartx -av #{@loop_dev}`
+    @dev_map = "/dev/mapper/#{kpartx_out.split()[2]}"
+  end
+
+  def format_swap
+    # mkswap
+    map_loop
+    puts "Making swap filesystem on swap image partition (#{@dev_map})..." if @verbose
+    mkswap_cmd = "mkswap #{@dev_map}"
+    if @verbose
+      puts `#{mkswap_cmd}`
+    else
+      `#{mkswap_cmd} >> /dev/null 2>&1`
+    end
+    # unmount the swap
+    puts "Unmapping and removing loop device of swap image..." if @verbose
+    `kpartx -d #{@loop_dev}`
+    `losetup -d #{@loop_dev}`
+  end
+
+  def format_ext3
+    map_loop
+    puts "Making ext3 filesystem on image partition (#{@dev_map})..." if @verbose
+    mke2fs_cmd = "mke2fs -j #{@dev_map}"
+    if @verbose
+      puts `#{mke2fs_cmd}`
+    else
+      `#{mke2fs_cmd} >> /dev/null 2>&1`
+    end
+    # unmount the swap
+    puts "Unmapping and removing loop device of image..." if @verbose
+    `kpartx -d #{@loop_dev}`
+    `losetup -d #{@loop_dev}`
+  end
+   
+  def mount_image(path)
+    # Mount the image file at @mount
+    @loop_dev = `losetup -f`.strip
+    loop_image
+    map_loop
+    puts "Mounting image at #{path}..." if @verbose
+    Dir.mkdir(path) unless File.exist?(path)
+    `mount #{@dev_map} #{path}`
+  end
+
+end

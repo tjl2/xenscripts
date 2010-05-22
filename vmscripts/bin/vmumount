@@ -1,0 +1,38 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+
+class App < CommandLine::Application
+
+  def initialize
+    version           "0.1"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "NAME [-h | --help]"
+    short_description "Unmount the image file of the virtual machine, NAME from /mnt/NAME"
+
+    option :version
+    option :verbose
+    option :help
+    option :debug
+    
+    expected_args :name
+  end
+
+  def main
+    # Check this VM exists
+    validate_name
+    # Load our VM conf
+    @vm = VirtualMachine.load_from_conf("#{VirtualMachine::XEN_CONFIG_DIR}/#{@name}", :verbose => @verbose)
+    # Check if the vm is mounted (any need to do this - or just go ahead?)
+    # Unmount the image
+    @vm.unmount_image
+  end
+  
+  def validate_name
+    unless File.exists?("#{VirtualMachine::XEN_CONFIG_DIR}/#{@name}")
+      raise "No config file exists for a virtual machine called '#{@name}'"
+    end
+  end
+end

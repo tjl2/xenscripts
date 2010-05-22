@@ -1,0 +1,30 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine' # Do this so we can access the AVAILABLE_DISTROS constant
+
+class App < CommandLine::Application
+
+  def initialize
+    version           "0.1"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "[-h | --help]"
+    short_description "List the available distributions that can be used with the vmcreate command"
+
+    option :version
+    option :help
+  end
+
+  def main
+    puts "Available distributions:"
+    puts ""
+    VirtualMachine::DISTROS.each do |dist|
+      if dist == VirtualMachine::DEFAULT_DISTRO
+        puts dist + " (default)\n"
+      else
+        puts dist + "\n"
+      end
+    end
+  end
+end

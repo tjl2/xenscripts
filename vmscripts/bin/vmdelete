@@ -1,0 +1,105 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+
+class App < CommandLine::Application
+  def initialize
+    version           "0.1"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "NAME [--force|-f] [--verbose|-v]"
+    short_description "Delete a virtual machine from the hypervisor server."
+    long_description  "vmdelete will turn off the virtual machine, NAME, then " +
+                      "delete the image files and remve the config file from " +
+                      "this and any other hypervisors. It will ask for " +
+                      "confirmation, but this can be overriden with the --force " +
+                      "option."
+
+    option :version
+    option :help
+    option :verbose
+    option :debug
+    option :names => %w(--force -f), :opt_description => "Do not prompt for confirmation",
+           :arity => [0,0], :opt_found => proc {@force = true}, 
+           :opt_not_found => proc {@force = false}
+    option :names => %w(--test -t), :opt_description => "Do a dry-run test and just show " +
+           "what would be deleted.", :arity => [0,0], :opt_found => proc {@test = true},
+           :opt_not_found => proc {@test = false}
+
+    expected_args :name
+  end
+
+  def main
+    @warnings = []
+    # Check the VM config exists
+    validate_name # Program will exit if we can't find the VM on this server
+    # Ask for confirmation if required
+    confirm unless @force || @test
+    # Load up our vm
+    @vm = VirtualMachine.load_from_conf("#{VirtualMachine::XEN_CONFIG_DIR}/#{@name}")
+    if @test
+      puts "VM files marked for deletion:"
+      puts "  #{@vm.config_file}"
+      puts "  #{@vm.image_path}"
+      puts "  #{@vm.swap_path}"
+    else
+      # Switch off the VM
+      shutdown_vm
+      # Delete the image files
+      delete_image_file(@vm.swap_path)
+      delete_image_file(@vm.image_path)
+      # Delete the config file(s)
+      if @vm.ha
+        VirtualMachine::XEN_SERVERS.each do |server|
+          if server != ENV['HOSTNAME']
+          `ssh root@#{server} "rm -f #{@vm.config_file}"`
+          end
+        end
+      end
+      delete_config
+      if @warnings.length > 0
+        @warnging.each do |warning|
+          puts warning
+        end
+      end
+    end
+    
+  end
+
+  def validate_name
+    unless File.exists?("#{VirtualMachine::XEN_CONFIG_DIR}/#{@name}")
+      raise "No config file exists for a virtual machine called '#{@name}'"
+    end
+  end
+
+  def confirm
+    begin
+      print "Are you sure you want to COMPLETELY REMOVE #{@name} from this server? (yes|no): "
+      answer = STDIN.gets.chomp
+      unless answer =~ /^(y|ye|yes)$/
+        puts "Exiting, and leaving '#{@name}' alone."
+        exit
+      end
+    rescue Interrupt
+      puts "\nExiting, and leaving '#{@name}' alone."
+    end
+  end
+
+  def shutdown_vm
+    `/usr/sbin/xm destroy #{@name}` if @vm.is_running?
+  end
+
+  def delete_image_file(file_path)
+    # First check the file exists - warn us if it doesn't
+    if File.exists?(file_path)
+      File.delete(file_path)
+    else
+      @warnings << "Could not find #{file_path}"
+    end
+  end
+
+  def delete_config
+    File.delete(@vm.config_file)
+  end
+end

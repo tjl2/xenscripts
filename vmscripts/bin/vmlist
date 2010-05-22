@@ -1,0 +1,50 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+
+class App < CommandLine::Application
+  
+  def initialize
+    version           "0.1"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          ""
+    short_description "An improved 'xm list' output for our cluster."
+    long_description  "vmlist will show us the output of xm list from each server in our cluster."
+
+    option :version
+    option :help
+  end
+
+  def main
+    output = xm_list_each_server
+    format_output output
+  end
+
+  def xm_list_each_server
+    output = {}
+    VirtualMachine::XEN_SERVERS.each do |server|
+      # Run xm list on each server
+      output[server] = `ssh root@#{server} xm list | egrep -v "^Name"`
+    end
+    output
+  end
+
+  def format_output(output_hash)
+    final_output = "Hypervisor\t\tName\t\tID Mem(MiB) VCPUs State\tTime(s)\n"
+    output_hash.each do |server, output|
+      output.each do |line|
+        unless line =~ /Domain-0/ or line =~ /Error:/
+          line_parts = line.split
+          final_output += server + "\t" + line_parts[0]  
+          (line_parts[0].length >= 8) ? (final_output += "\t") : (final_output += "\t\t")
+          final_output += line_parts[1] + "\t" + line_parts[2] + "\t" + line_parts[3] +
+          " " + line_parts[4] + " " + line_parts[5] + "\n"
+        end
+      end
+    end
+    puts final_output
+  end
+
+end

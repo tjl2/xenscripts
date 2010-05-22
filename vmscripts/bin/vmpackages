@@ -1,0 +1,36 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+
+class App < CommandLine::Application
+
+  def initialize
+    version           "0.2"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "[-h | --help]"
+    short_description "List the available packages that can be used with the vmcreate command"
+
+    option :version
+    option :help
+  end
+
+  def main
+    puts "Available packages:"
+    puts ""
+    VirtualMachine::PACKAGES.each do |pkg|
+      if pkg['name'] == VirtualMachine::DEFAULT_PACKAGE
+        puts pkg['name'] + " (default)\n"
+      else
+        puts pkg['name'] + "\n"
+      end
+      puts "  memory:  #{pkg['mem']}MB"
+      puts "  swap:    #{pkg['swap']}MB"
+      puts "  storage: #{pkg['storage']}GB"
+    end
+    puts ""
+    puts "To modify the package list, edit the #{VirtualMachine::YAML_CONF} file"
+  end
+
+end

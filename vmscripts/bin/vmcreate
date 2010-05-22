@@ -1,0 +1,309 @@
+#! /usr/bin/env ruby
+require 'rubygems'
+require 'commandline'
+require 'virtual_machine'
+require 'net/ping'
+
+class App < CommandLine::Application
+
+  def initialize
+    version           "0.2"
+    author            "Tim Littlemore"
+    copyright         "2009, Tim Littlemore"
+    synopsis          "NAME IP [-D DISTRIBUTION -p PACKAGE -l LUN-STORAGE -e EMAIL -v]"
+    short_description "Create a virtual machine with NAME on IP"
+    long_description  "vmcreate enables you to create a virtual machine." +
+                      "The NAME and IP arguments are mandatory, other " +
+                      "options can be provided to override defaults."
+
+    option :version
+    option :help
+    option :verbose
+    option :debug
+    option :names => %w(--distro -D), :arg_description => "DISTRIBUTION",
+           :opt_description => "Provide a distribution to use for the VM. " +
+           "The distrubution string needs to be <distro>-<version>-<arch> " +
+           "e.g.: fedora-10-i386. You can use the vmdistros command to " +
+           "see currently available distributions.",
+           :opt_found   => get_args
+    option :names => %w(--pkg -p), :arg_description => "PACKAGE",
+           :opt_description => "Provide a package to use for the VM. " +
+           "The package used defines the memory and storage allocations.",
+           :opt_found => get_args
+    option :names => %w(--lun -l), :arg_description => "LUN",
+           :opt_description => "Use this option to specify that LUN storage is " +
+           "to be used. Provide the number of GB of space to assign. This will " +
+           "override the storage amount specified by the package.",
+           :opt_found => get_args
+    option :names => %w(--email -e), :arg_description => "EMAIL",
+           :opt_description => "If this option is provided, the VM details " +
+           "will be sent to the address.", :opt_found => get_args
+
+    expected_args :name, :ip
+  end
+
+  def main
+    # Validate all input.
+    validate_name # Program will exit if @name is already in use.
+    validate_ip # Program will exit if @ip is invalid
+    if opt.distro
+      # Check if we've been sent a distro
+      validate_distro # Program will exit if distro is not in list
+      distro_string = opt.distro
+    else
+      # Use default distro
+      distro_string = VirtualMachine::DEFAULT_DISTRO
+    end
+    if opt.pkg
+      # Check if we've been sent a package
+      validate_pkg
+      pkg = opt.pkg
+    else
+      # Use default package
+      pkg = VirtualMachine::DEFAULT_PACKAGE
+    end
+    if opt.lun
+      # Check if we're being asked to provnamee LUN storage
+      validate_lun
+      ha = true
+      storage = opt.lun
+    else
+      ha = false
+    end
+    # Check if we've been given an email address
+    if opt.email
+      validate_email
+      @send_email = true
+      # Load up our email libs (we don't do this at the top because
+      # ActionMailer seems to interfere with the --help option)...
+      require 'action_mailer'
+      require 'vm_mailer'
+    else
+      @send_email = false
+    end
+    # Our VirtualMachine object expects a distro name, version and architecture
+    distro  = distro_string.split('-')[0]
+    version = distro_string.split('-')[1]
+    arch    = distro_string.split('-')[2]
+    # We now have enough info to create a new VirtualMachine
+    vm_params = {:name => @name, :ip => @ip, :package => pkg, :distro => distro,
+                 :version => version, :arch => arch, :ha => ha, :verbose => @verbose}
+    if ha
+      vm_params[:storage] = storage
+    end
+    # We've assembled all our parameters, instantiate a VirtualMachine object...
+    @vm = VirtualMachine.new(vm_params)
+    
+    # TODO: check we have enough space available to create our image
+    # What we do from this point onwards depends on the distro...
+    case distro
+    when 'centos', 'rhel', 'fedora'
+      kickstart_installation
+      # For some bizarre reason a RHEL/CentOS 5 i386 installation never sets the
+      # password correctly (why the fuck is that?!)... Reset it ourselves
+      if @vm.distro_string == 'centos-5-i386' or @vm.distro_string == 'rhel-5-i386'
+        puts "Changing password to fix weird i386 bug..." if @verbose
+        `/usr/local/bin/vmpasswordreset #{@name} #{@vm.rootpw}`
+      end
+    when 'debian', 'ubuntu'
+      deboostrap_installation
+    end
+    # Copy config to other servers if ha
+    if ha
+      puts "VM is HA, copying config to other servers." if @verbose
+      VirtualMachine::XEN_SERVERS.each do |server|
+        if server != ENV['HOSTNAME']
+          `scp #{VirtualMachine::XEN_CONFIG_DIR}/#{@name} root@#{server}:/#{VirtualMachine::XEN_CONFIG_DIR}/#{@name}`
+        end
+      end
+    end
+    # Fire it up!
+    puts "Starting up VM..." if @verbose
+    `/usr/sbin/xm create #{@name}` unless @vm.is_running?
+    # Once we're finished, send or display details
+    if @send_email
+      puts "Sending details to #{opt.email}" if @verbose
+      VMMailer.deliver_creation_notification(opt.email, @vm.rootpw, @ip)
+    else
+      puts "VM #{@name} created and running on #{@ip}. Root password is #{@vm.rootpw}"
+    end
+  end # end main
+
+  def validate_name
+    # Check that the vm name doesn't already exist as a config
+    # TODO: this needs to be improved to check each server, or our panel DB
+    puts "Checking that VM ID is not already in use on this server..." if @verbose
+    if File.exist?(VirtualMachine::XEN_CONFIG_DIR + '/' + @name)
+      raise "a virtual machine with that name is already configured."
+    end
+  end
+
+  def validate_ip
+    # Check that the supplied IP address is valid.
+    unless @ip =~ /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/
+      raise "invalid IP address"
+    end
+    # Check the IP doesn't ping
+    puts "Checking the IP is not already in use (pinging #{@ip})..." if @verbose
+    host = Net::Ping::ICMP.new(@ip)
+    if host.ping
+      raise "IP address is live. If reinstalling VM, shut down old instance first."
+    end
+  end
+
+  def validate_distro
+    # Check that the supplied distro string is valid.
+    unless VirtualMachine::DISTROS.include?(opt.distro)
+      raise "invalid distribution selected. Run vmdistros command for valid list"
+    end
+  end
+
+  def validate_email
+    email_regxp = /^([^@\s]+)@((?:[-a-z0-9]+\.)+[a-z]{2,})$/i
+    raise 'Invalid email address' unless opt.email =~ email_regxp
+  end
+
+  def validate_pkg
+    # Check that the supplied package string is valid.
+    #unless AVAILABLE_PACKAGES.include?(opt.pkg)
+    #  raise "invalid package selected.\nPackage names are #{AVAILABLE_PACKAGES.join(', ')}"
+    #end
+    VirtualMachine::PACKAGES.each do |pkg|
+      if pkg['name'] == opt.pkg
+        return
+      end
+    end
+    # If we get to the end of the loop, we couldn't find the package
+    raise "invalid package selected.\nValid package names can be shown by running vmpackages"
+  end
+
+  def validate_lun
+    # Check the LUN is a valid number
+    unless opt.lun =~ /\d+/
+      raise "LUN storage value is not an integer"
+    end
+  end
+
+  def create_at_job
+    # Creates an at job to call our vm.kickstart_destroyer_url in 5 minutes (gives the
+    # installation chance to use the KS file)
+    unless @verbose
+      output = ">> /dev/null 2>&1"
+    else
+      output = ''
+    end
+    at_file = "/tmp/ksd-#{@name}"
+    `echo "wget -q #{@vm.kickstart_destroyer_url}; rm #{at_file}" > #{at_file}`
+    `at -f #{at_file} now + 5 minutes #{output}`
+  end
+
+  def watch_vm
+    vm_is_running = true # assume the vm is running at first
+    sleep_value = 30
+    count = 0
+    while vm_is_running
+      sleep sleep_value # wait, then run command again until exitstatus is 1 (i.e. xm list has failed)
+      `/usr/sbin/xm list #{@name} >> /dev/null 2>&1`
+      puts "#{@name} is still installing (#{count += sleep_value}s)..." if @verbose
+      if $?.exitstatus == 1
+        puts "#{@name} has stopped" if @verbose
+        vm_is_running = false
+      end
+    end
+  end
+
+  def kickstart_installation
+    # Kickstart installation method
+    # Create empty disk images (anaconda will do all the formatting for us)
+    puts "Creating swap image file #{@vm.swap_path} of #{@vm.swap}MB..." if @verbose
+    `#{@vm.dd_swap_img}`
+    puts "Creating image file #{@vm.image_path} of #{@vm.storage}GB..." if @verbose
+    `#{@vm.dd_img_file}`
+    # Create a xen config for our installation
+    puts "Creating a xen config to use for our installation..." if @verbose
+    @vm.create_config_for_ks
+    # Now run our VM (start the installation)
+    puts "Starting the installation..." if @verbose
+    `/usr/sbin/xm create #{@name}`
+    # Watch for installation completing
+    watch_vm
+    puts "Installation complete, creating a new config to boot from..." if @verbose
+    @vm.create_config
+  end
+
+  def deboostrap_installation
+    # Method to do a Debian debootstrap installation
+    # Create a swap file
+    create_vm_swap
+    # Create an image file
+    create_vm_image
+    # Mount the partition
+    puts "Mounting our VM disk image..." if @verbose
+    mount_point = @vm.mount_image
+    puts "Mounted image at #{mount_point}..." if @verbose
+    # Run debootstrap
+    puts "Starting debootstrap installation (#{@vm.debootstrap})...\nThis will take a few minutes..." if @verbose
+    if @verbose
+      puts `#{@vm.debootstrap}`
+    else
+      `#{@vm.debootstrap}`
+    end
+    puts "Running our post-debootstrap commands..." if @verbose
+    @vm.post_debootstrap_commands
+    # Umount our image
+    puts "Unmounting image..." if @verbose
+    @vm.unmount_image
+    # We need to create our own config file (from scratch with debootstrap method,
+    # modify existing when kickstart method.)
+    @vm.create_config
+  end
+
+  def create_vm_swap
+    # Create a swap image
+    puts "Creating swap image file #{@vm.swap_path} of #{@vm.swap}MB..." if @verbose
+    `#{@vm.dd_swap_img}`
+    # Set up loop device for the swap image
+    swap_loop_dev = `losetup -f`.strip
+    puts "Setting up loop device (#{swap_loop_dev}) for swap image..." if @verbose
+    `losetup #{swap_loop_dev} #{@vm.swap_path}`
+    # Partition the swap
+    puts "Partitioning the swap loop device..." if @verbose
+    `fdisk #{swap_loop_dev} < #{VirtualMachine::FDISK_INPUTS_PATH}/fdisk-new-swap.input`
+    # kpartx the partition
+    puts "Adding partition to device map..." if @verbose
+    kpartx_out = `kpartx -av #{swap_loop_dev}`
+    swap_dev_map = "/dev/mapper/#{kpartx_out.split()[2]}"
+    # mkswap
+    puts "Making swap filesystem on swap image partition (#{swap_dev_map})..." if @verbose
+    `mkswap #{swap_dev_map}`
+    # unmount the swap
+    puts "Unmapping and removing loop device of swap image..." if @verbose
+    `kpartx -d #{swap_loop_dev}`
+    `losetup -d #{swap_loop_dev}`
+  end
+  
+  def create_vm_image
+    # Create an image file
+    puts "Creating image file #{@vm.image_path} of #{@vm.storage}GB..." if @verbose
+    `#{@vm.dd_img_file}`
+    # Set up a loop device for the image
+    vm_loop_dev = `losetup -f`.strip
+    puts "Setting up loop device (#{vm_loop_dev}) for image..." if @verbose
+    `losetup #{vm_loop_dev} #{@vm.image_path}`
+    # Partition the image
+    puts "Partitioning the image loop device..." if @verbose
+    `fdisk #{vm_loop_dev} < #{VirtualMachine::FDISK_INPUTS_PATH}/fdisk-new.input`
+    # kpartx the partition
+    puts "Adding partition to device map..." if @verbose
+    kpartx_out = `kpartx -av #{vm_loop_dev}`
+    vm_dev_map = "/dev/mapper/#{kpartx_out.split()[2]}"
+    # Format the partition
+    puts "Formatting the partition (#{vm_dev_map}) with ext3..." if @verbose
+    `mke2fs -j #{vm_dev_map}`
+    # Unmap & unloop
+    puts "Unmapping and removing loop device of image..." if @verbose
+    `kpartx -d #{vm_loop_dev}`
+    `losetup -d #{vm_loop_dev}`
+  end
+
+end

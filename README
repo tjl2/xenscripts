@@ -1,0 +1,44 @@
+== Introduction ==
+These scripts are used to build and manage Xen virtual machines on CentOS-based
+Dom0 hypervisors.
+
+These scripts were written very quickly to meet tight deadlines and ended up
+pretty messy! They work, but will likely need a fair bit of work to run in a
+different server environment.
+
+== Virtual Machine/Guest Distros ==
+The DomU guests can be various Linux distros, but each distro requires a
+'script' creating in the virtual_machine.rb file to work. The distros that
+work at this time are as follows:
+
+centos-5-i386
+centos-5-x86_64
+debian-4-i386
+debian-4-amd64
+debian-5-i386
+debian-5-amd64
+fedora-10-i386
+fedora-10-x86_64
+rhel-5-i386
+rhel-5-x86_64
+ubuntu-804-i386
+ubuntu-804-amd64
+ubuntu-810-amd64
+ubuntu-904-i386
+ubuntu-904-amd64
+
+== Things to know/assumptions about the environment ==
+
+* The scripts create xen blktap file-based disks for the virtual machines and
+allow you to specify whether to use SAN storage (assuming it's iSCSI and
+available as a mount point) or local storage.
+* The scripts assume you have a PXE boot server set up, hosting boot images
+(and installation media for the CentOS & RHEL distros).
+* The CentOS & RHEL distros are set up using the kickstart method.
+* The Debian and Ubuntu distros are set up using the debootstrap method.
+* The scripts work on the basis of setting up a 'package' for the guests - the
+packages define, RAM and disk amounts
+
+== Config ==
+Many of the settings for these scripts are set in a YAML config file, which
+needs to be placed in /etc/vmscripts/vmconf.yml

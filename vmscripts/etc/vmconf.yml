@@ -1,0 +1,164 @@
+# vmconf.yml
+# Configure various settings for the vm scripts here.
+# White space and indentation is important - DO NOT
+# ALTER IT!
+
+# Set the paths where images will be stored.
+#  local: = path on the local system disk
+#  ha: = mounted path on the HA/SAN
+#  fdisk_inputs: = where the fdisk input files are stored
+#  xen_configs: = where the Xen configs are stored
+paths:
+  local_images: /var/lib/xen/images
+  ha_images: /mnt/lun0/xen/images
+  fdisk_inputs: /etc/vmscripts/fdiskinputs
+  xen_configs: /etc/xen
+  authorized_keys: /etc/vmscripts/authorized_keys
+
+# Nameserver IP addresses. These are the IP addresses that
+# will be used by our VMs in their resolv.confs
+# Each one must be two spaces in and begin with a '-'
+nameservers:
+  - 8.8.8.8
+  - 8.8.4.4
+
+# Default domain. When using vmcreate, the name of the VPS
+# will be combined with a domain to create a fully-qualified
+# domain name.
+domain: example.net
+
+# The xen hypervisor servers in your cluster. Each one must
+# be connected to the shared storage. You must also
+# ensure that SSH keys are set up between these machines
+# so that they can scp files to each other without prompting
+# for passwords
+xen_servers:
+  - xenserver1.example.net
+  - xenserver2.example.net
+  - xenserver3.example.net
+
+# Network settings. Define your allowable networks here. You can only use IP
+# addresses with the vmcreate script that are part of one of these defined
+# networks. The networks need to be an array of hashes, with each
+# hash key being one of the following:
+#  'network' needs to be the first 3 octets of the network
+#            (must be a string in quotes)
+#  'start' is the first allowable IP in the network (must
+#          be a single integer)
+#  'end' is the last allowable IP in the network (must be
+#        a single integer)
+#  'nmask' is the netmask (must be a string in quotes)
+#  'gway' is the network gateway (must be a string in quotes)
+#  'type' is either 'bridged' or 'routed', depending on your xen network policy
+# Example:
+# networks:
+#   -
+#     network: '10.0.0'
+#     start: 1
+#     end: 253
+#     nmask: '255.255.255.0'
+#     gway: '10.0.0.254'
+#     type: bridged
+#   -
+#     network: '10.0.1'
+#     start: 1
+#     end: 125
+#     nmask: '255.255.255.128'
+#     gway: '10.0.1.126'
+#     type: routed
+networks:
+  -
+    network: '10.0.0'
+    start:   1
+    end:     253
+    nmask:   '255.255.255.0'
+    gway:    '10.0.0.1'
+    type:    bridged
+  -
+    network: '10.0.1'
+    start:   1
+    end:     253
+    nmask:   '255.255.255.0'
+    gway:    '10.0.1.1'
+    type:    routed
+
+# Package settings. Provide package details: name, memory and
+# storage size here. The packages should be an array of hashes,
+# with each hash key being name, mem, swap & storage. The
+# mem & swap values should be in MB. The storage should be in
+# GB. Example:
+# packages:
+#   -
+#     name: pkg1
+#     mem: 512
+#     swap: 1024
+#     storage: 10.0
+#   -
+#     name: pkg2
+#     mem: 1024
+#     swap: 2048
+#     storage: 20.0
+packages:
+  -
+    name:    v512
+    mem:     512
+    swap:    1024
+    storage: 9.0
+  -
+    name:    v1000
+    mem:     1024
+    swap:    2048
+    storage: 18.0
+  -
+    name:    v2000
+    mem:     2048
+    swap:    4096
+    storage: 36.0
+
+# This is the default package that is used when one isn't
+# provided to the vmcreate script. It must exist as one of
+# the names above.
+default_package: v256
+
+# A list of distributions that are available for the vmcreate
+# script. Any distros listed here need to be configured in the
+# virtual_machine.rb file
+distros:
+  - centos-5-i386
+  - centos-5-x86_64
+  - debian-4-i386
+  - debian-4-amd64
+  - debian-5-i386
+  - debian-5-amd64
+  - fedora-10-i386
+  - fedora-10-x86_64
+  - rhel-5-i386
+  - rhel-5-x86_64
+  - ubuntu-804-i386
+  - ubuntu-804-amd64
+  - ubuntu-810-amd64
+  - ubuntu-904-i386
+  - ubuntu-904-amd64
+
+# This is the default distribution that is used when one isn't
+# provided to the vmcreate script.
+default_distro: centos-5-x86_64
+
+# Settings related to kickstart installs.
+#  server: = the server where installation trees are stored
+#  bootimages: = the path where we find the xen kernel images
+#  to use to boot the kickstart
+kickstart:
+  server: distro-mirror.example.net
+  bootimages: /etc/vmscripts/ksbootimages
+
+# Settings to modify which mirrors are used for debootstrap
+# downloads
+debootstrap_mirrors:
+  debian: http://ftp.uk.debian.org/debian
+  ubuntu: http://archive.ubuntu.com/ubuntu
+
+# Settings for the emails sent from vmcreate
+vmcreate_email:
+  from: "Hosting Company <support@example.net>"
+  subject: "Your VPS is ready!"

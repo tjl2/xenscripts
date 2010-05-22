@@ -92,6 +92,10 @@ class App < CommandLine::Application
   end
 
   def check_path_for_sparse_setting
+    # THIS METHOD HAS HARD-CODED DETAILS ABOUT IMAGE PATHS THAT WERE SPECIFIC
+    # TO OUR ENVIRONMENT (SAS CONTROLLER AND SPARSE IMAGE BUG).
+    # THIS NEEDS TO BE CHANGED IF USED ON OTHER CLUSTERS!
+    
     # Change directory to the @file directory and see if that path contains
     # /mnt/lun*. Doing things this way allows us to receive relative paths.
     # @file.split('/')[0:-2].join('/') will return our path without the filename.

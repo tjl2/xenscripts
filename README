@@ -27,18 +27,48 @@ ubuntu-810-amd64
 ubuntu-904-i386
 ubuntu-904-amd64
 
-== Things to know/assumptions about the environment ==
+== The scripts ==
+Most of these scripts talk about the virtual machine 'NAME' - this is the Xen
+name as shown in the output of 'xm list'
 
+vmcreate - create a virtual machine
+vmcreateimage - create, format and mount an image (useful for manual guest
+configurations)
+vmdelete - delete a virtual machine
+vmdistros - list the currently available distros, as set in the config file
+vmlist - a cluster-aware 'xm list' clone
+vmmount/vmumount - mount/unmount the disk of a vm to access it from Dom0 (will
+exit if the virtual machine is running)
+vmpackages - list the currently defined packages and their RAM & disk allocations
+vmpasswordreset - reset the root password of a virtual machine (requires it to
+be restarted)
+
+== Things to know/assumptions about the environment ==
 * The scripts create xen blktap file-based disks for the virtual machines and
 allow you to specify whether to use SAN storage (assuming it's iSCSI and
 available as a mount point) or local storage.
+* The script needs to know if the hypervisor is part of a cluster, by listing
+all cluster members in the config file. It will then copy out the xen config
+for the guest over to each cluster member if it is set to use the SAN storage.
 * The scripts assume you have a PXE boot server set up, hosting boot images
 (and installation media for the CentOS & RHEL distros).
 * The CentOS & RHEL distros are set up using the kickstart method.
 * The Debian and Ubuntu distros are set up using the debootstrap method.
 * The scripts work on the basis of setting up a 'package' for the guests - the
-packages define, RAM and disk amounts
+packages define RAM and disk quotas
 
 == Config ==
 Many of the settings for these scripts are set in a YAML config file, which
 needs to be placed in /etc/vmscripts/vmconf.yml
+
+== Installation ==
+There's no installer available for these scripts, just clone the git repo, do
+the following on each hypervisor in your cluster:
+* Copy everything from the 'etc' directory into /etc/vmscripts/
+* Copy everything from the 'lib' directory into /usr/lib/ruby/site_ruby/
+* Copy everything from the 'bin' directory into /usr/local/sbin and make sure
+each script is chmodded with executable permissions
+
+== Usage ==
+Each script has fairly comprehensive usage instructions - just run each one
+with the --help switch.

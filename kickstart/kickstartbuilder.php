@@ -12,7 +12,7 @@
 // nmask = the netmask for the VM
 // gway = the network gateway
 // hostname = the hostname to give the VM
-// rootpw = the root password to give the VM - keep this alpha-numeric and change it after installation (you've jsut passed it over the web remember!)
+// rootpw = the root password to give the VM
 // swap = the sixe to use for the swap partition (the rest of the disk space will be used by the / partition)
 $filename = "{$_GET['name']}-ks.cfg";
 $installation_server = ""; // the address of your PXE server

@@ -56,6 +56,9 @@ for the CentOS & RHEL distros.
 * The Debian and Ubuntu distros are set up using the debootstrap method.
 * The scripts work on the basis of setting up a 'package' for the guests - the
 packages define RAM and disk quotas
+* The vmcreateimage script has some hard-coded assumptions about disk image
+paths that were specific to our cluster environment to work around a sparse
+image bug in CentOS 5.3 and Dell PowerEdge 1950 III SAS controllers.
 
 == Config ==
 Many of the settings for these scripts are set in a YAML config file, which

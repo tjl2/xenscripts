@@ -69,10 +69,7 @@ openssh-server
 wget
 
 %post
-mkdir -p /root/.ssh
-chmod 0700 /root/.ssh
-/usr/bin/wget http://pixie.1steasy.net/ks/authorized_keys -O /root/.ssh/authorized_keys
-chmod 0600 /root/.ssh/authorized_keys";
+";
 // Echo out our a kickstart info
 header("Content-Type: text/plain");
 echo $ks_out;
